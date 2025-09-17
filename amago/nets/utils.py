@@ -201,6 +201,26 @@ class SlowAdaptiveRational(nn.Module):
         den = (self.denominator * pows[..., 1 : 1 + self.den_d]).abs().sum(-1) + 1
         return num / den
 
+@gin.configurable
+class AID(nn.Module):
+    """Activation by Interval-wise Dropout.
+
+    https://arxiv.org/pdf/2502.01342
+    """
+
+    def __init__(self, prop=0.5):
+        super(AID, self).__init__()
+        self.prop = float(prop)
+        
+    def forward(self, x):
+        if self.training:
+            # Bernoulli 마스크 생성 및 적용
+            mask = torch.bernoulli(torch.full_like(x, self.prop)).bool()
+            return torch.where(mask, torch.relu(x), -torch.relu(-x))
+        else:
+            # 테스트 시에는 확률에 따른 가중 평균 적용
+            return torch.where(x >= 0, self.prop * x, (1 - self.prop) * x)
+
 
 def activation_switch(activation: str) -> callable:
     """Quick switch for the activation function.
@@ -226,5 +246,8 @@ def activation_switch(activation: str) -> callable:
         return F.gelu
     elif activation == "adaptive":
         return SlowAdaptiveRational()
+    elif "aid" in activation:
+        prop = float(activation.split("_")[-1])
+        return AID(prop)
     else:
         raise ValueError(f"Unrecognized `activation` func: {activation}")
